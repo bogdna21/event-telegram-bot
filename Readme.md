@@ -39,7 +39,7 @@ A Telegram bot designed to manage game events (ігротеки) with features f
 
     Clone the repository:
 
-git clone https://github.com/yourusername/your-repo-name.git
+git clone https://github.com/bogdna21/event-telegram-bot.git
 cd your-repo-name
 
     Install dependencies:
