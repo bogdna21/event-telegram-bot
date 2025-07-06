@@ -206,11 +206,6 @@ def update_event_message(event):
         if players:
             text += "Гравці: " + ", ".join(f"@{p.username}" if p.username else f"ID:{p.telegram_id}" for p in players) + "\n"
 
-        reply_markup = InlineKeyboardMarkup()
-        reply_markup.add(
-            InlineKeyboardButton("✅ Я йду", callback_data=f"join_{event.id}"),
-            InlineKeyboardButton("❌ Не йду", callback_data=f"leave_{event.id}")
-        )
 
         # ⏳ Перевіряємо, чи текст змінився
         if event.last_rendered_text == text:
@@ -220,8 +215,7 @@ def update_event_message(event):
         bot.edit_message_text(
             chat_id=event.chat_id,
             message_id=event.message_id,
-            text=text,
-            reply_markup=reply_markup
+            text=text
         )
 
         # 💾 Зберігаємо новий текст
@@ -498,12 +492,19 @@ def create_event_handler(message):
         )
         db.session.add(event)
         db.session.commit()
-        publish_event_message(event)
-        bot.reply_to(message, f"✅ Подію '{name}' збережено! Щоб опублікувати, використай /events")
+
+        # ❗️ ТУТ ГОЛОВНЕ: публікуємо в тому ж чаті, де створено івент (особистий чат)
+        publish_event_message(event, chat_id=message.chat.id)
+
+        bot.send_chat_action(message.chat.id, "typing")
+        time.sleep(0.3)
+        bot.delete_message(message.chat.id, message.message_id)
+        bot.send_message(message.chat.id, "✅ Івент створено.", disable_notification=True)
 
     except Exception as e:
         print(f"[ERROR /create_event]: {e}")
         bot.reply_to(message, "🚫 Помилка при створенні події.")
+
 
 
 def publish_event_message(event, chat_id=GROUP_CHAT_ID):
@@ -617,10 +618,15 @@ def send_events_to_group(message):
 
     full_text = "\n\n".join(text_blocks)
 
-    # Надсилаємо повідомлення з описом всіх подій
+    # 🖼 Надсилаємо збережене фото (якщо існує)
+    if os.path.exists(CURRENT_IMAGE_PATH):
+        with open(CURRENT_IMAGE_PATH, "rb") as photo:
+            bot.send_photo(message.chat.id, photo)
+
+    # 📩 Надсилаємо текст
     desc_msg = bot.send_message(message.chat.id, full_text)
 
-    # Зберігаємо повідомлення огляду в базу
+    # 💾 Зберігаємо повідомлення огляду в БД
     overview = EventsOverviewMessage.query.first()
     if not overview:
         overview = EventsOverviewMessage(
@@ -635,18 +641,9 @@ def send_events_to_group(message):
         overview.last_rendered_text = full_text
     db.session.commit()
 
-    # Надсилаємо кнопки для реєстрації
-    markup = types.InlineKeyboardMarkup()
-    for event in events:
-        weekday_abbr = UKR_DAY_ABBR[event.date.weekday()]
-        date_label = event.date.strftime("%d.%m")
-        label = f"{weekday_abbr}, {date_label} | {event.name}"
-        markup.add(types.InlineKeyboardButton(label, callback_data=f"toggle_{event.id}"))
-
+    # ⌨️ Надсилаємо кнопки для вибору події
+    markup = generate_event_buttons()
     bot.send_message(message.chat.id, "Обери подію для реєстрації:", reply_markup=markup)
-
-
-
 
 
 
