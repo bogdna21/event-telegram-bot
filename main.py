@@ -140,6 +140,13 @@ def update_overview_message():
             print("❗ Немає повідомлення з ігротекою для оновлення.")
             return
 
+        intro_text = (
+            "Ану до нас на ігротеку! 🎲\n"
+            "Немає компанії? Знайдемо! Навчимо правилам — пригостимо кавою☕️\n\n"
+            "Початок о 18:00 (субота — 17:00)\n"
+            "📍 Адреса: вул. Листопадового Чину, 3\n\n"
+        )
+
         events = Event.query.filter(Event.date >= datetime.now()).order_by(Event.date).all()
         if not events:
             full_text = "📭 Немає запланованих подій."
@@ -163,7 +170,8 @@ def update_overview_message():
                 )
                 text_blocks.append(block)
 
-            full_text = "\n\n".join(text_blocks)
+            full_text = intro_text + "\n\n".join(text_blocks)
+
 
         # 🧠 Якщо текст не змінився — не оновлюємо
         if overview.last_rendered_text == full_text:
