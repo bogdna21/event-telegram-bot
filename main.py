@@ -11,12 +11,28 @@ from io import BytesIO
 import threading
 import time
 from telebot.apihelper import ApiTelegramException
+from flask_migrate import Migrate
 
 
-# === Завантаження змінних з .env ===
+# === Завантаження змінних з .env.prod ===
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///events.db")
+
+
+env = os.getenv("FLASK_ENV", "development")
+if env == "production":
+    db_user = os.getenv("POSTGRES_USER")
+    db_password = os.getenv("POSTGRES_PASSWORD")
+    db_host = os.getenv("POSTGRES_HOST")
+    db_name = os.getenv("POSTGRES_DB")
+    db_port = os.getenv("POSTGRES_DB_PORT", "5432")
+    DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+else:
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///events.db")
+
+print(f"[✅ База даних] Підключено до: {DATABASE_URL}")
+
+
 PORT = int(os.getenv("PORT", 5000))
 ADMIN_IDS = os.getenv("ADMIN_IDS", "").split(",")
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "-1001234567890"))
@@ -29,6 +45,7 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)
 
 
 # === Завантаження фото для ігротеки ===
@@ -337,12 +354,13 @@ def admin_menu(message):
 /events — Загальний список ігротек
 /delete_all - Видалити всі ігротеки
 /set_event_image - При додаванні фото у примітках цю команду
-/add_admin - Додати адміністратора
+/add_admin - Дати адмінку
+/remove_admin - Видалити адмінку
 """)
 
 
 def update_admin_ids_env(new_ids):
-    env_path = ".env"
+    env_path = ".env.prod"
     lines = []
     found = False
     new_line = f"ADMIN_IDS={','.join(new_ids)}"
@@ -365,26 +383,23 @@ def add_admin_handler(message):
         bot.reply_to(message, "⛔ Доступ лише для адміністраторів.")
         return
 
-    args = message.text.split()
-    if len(args) != 2:
-        bot.reply_to(message, "📌 Формат: /add_admin username (без @)")
-        return
+    telegram_id = str(message.reply_to_message.from_user.id if message.reply_to_message else message.from_user.id)
+    username = message.reply_to_message.from_user.username if message.reply_to_message else message.from_user.username
 
-    username_to_add = args[1].lstrip("@").strip()
-    user = User.query.filter_by(username=username_to_add).first()
-
-    if not user:
-        bot.reply_to(message, f"⚠️ Користувача @{username_to_add} не знайдено у базі.")
-        return
-
-    telegram_id = str(user.telegram_id)
     if telegram_id in ADMIN_IDS:
-        bot.reply_to(message, f"ℹ️ @{username_to_add} вже є адміністратором.")
+        bot.reply_to(message, f"ℹ️ @{username} вже є адміністратором.")
         return
 
     ADMIN_IDS.append(telegram_id)
     update_admin_ids_env(ADMIN_IDS)
-    bot.reply_to(message, f"✅ @{username_to_add} додано до адміністраторів.")
+
+    # Зберігаємо в базу (необов'язково)
+    if not User.query.filter_by(telegram_id=telegram_id).first():
+        user = User(username=username, telegram_id=telegram_id)
+        db.session.add(user)
+        db.session.commit()
+
+    bot.reply_to(message, f"✅ @{username} додано до адміністраторів.")
 
 @bot.message_handler(commands=['remove_admin'])
 def remove_admin_handler(message):
