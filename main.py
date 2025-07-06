@@ -597,12 +597,12 @@ def send_events_to_group(message):
         bot.send_message(message.chat.id, "📭 Наразі немає запланованих подій.")
         return
 
-    # 🖼 Надсилаємо збережене фото (якщо існує)
+    # 🖼 Надсилаємо зображення (якщо збережене)
     if os.path.exists(CURRENT_IMAGE_PATH):
         with open(CURRENT_IMAGE_PATH, "rb") as photo:
             bot.send_photo(message.chat.id, photo)
 
-    # 📝 Фіксований вступний текст
+    # 📌 Фіксований вступний текст
     intro_text = (
         "Ану до нас на ігротеку! 🎲\n"
         "Немає компанії? Знайдемо! Навчимо правилам — пригостимо кавою☕️\n\n"
@@ -610,7 +610,7 @@ def send_events_to_group(message):
         "📍 Адреса: вул. Листопадового Чину, 3\n\n"
     )
 
-    # 🗓 Формуємо список івентів
+    # 🧾 Текст для подій
     weekday_map = {0: "ПН", 1: "ВТ", 2: "СР", 3: "ЧТ", 4: "ПТ", 5: "СБ", 6: "НД"}
     text_blocks = []
 
@@ -632,10 +632,10 @@ def send_events_to_group(message):
 
     full_text = intro_text + "\n\n".join(text_blocks)
 
-    # 📩 Надсилаємо текст
+    # 📩 Надсилаємо опис подій
     desc_msg = bot.send_message(message.chat.id, full_text)
 
-    # 💾 Зберігаємо повідомлення огляду в БД
+    # 💾 Зберігаємо повідомлення огляду
     overview = EventsOverviewMessage.query.first()
     if not overview:
         overview = EventsOverviewMessage(
@@ -650,9 +650,10 @@ def send_events_to_group(message):
         overview.last_rendered_text = full_text
     db.session.commit()
 
-    # ⌨️ Надсилаємо кнопки для вибору події
+    # 🧩 Кнопки вибору події
     markup = generate_event_buttons()
     bot.send_message(message.chat.id, "Обери подію для реєстрації:", reply_markup=markup)
+
 
 
 
