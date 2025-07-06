@@ -12,7 +12,8 @@ import threading
 import time
 from telebot.apihelper import ApiTelegramException
 from flask_migrate import Migrate
-
+import locale
+from babel.dates import format_datetime, format_date
 
 # === Завантаження змінних з .env.prod ===
 load_dotenv()
@@ -91,6 +92,14 @@ class EventsOverviewMessage(db.Model):
 
 with app.app_context():
     db.create_all()
+
+
+def format_uk_date(dt, with_time=True):
+    if with_time:
+        return format_datetime(dt, "EEEE, d MMMM yyyy о HH:mm", locale="uk")
+    else:
+        return format_datetime(dt, "EEEE, d MMMM yyyy", locale="uk")
+
 
 # === Перевірка адміна ===
 def is_admin(chat_id, user_id):
@@ -192,7 +201,7 @@ def update_event_message(event):
         registrations = Registration.query.filter_by(event_id=event.id).all()
         players = [db.session.get(User, r.user_id) for r in registrations if db.session.get(User, r.user_id)]
 
-        text = f"🔔 Подія: {event.name}\n🕒 Дата: {event.date.strftime('%d.%m.%Y %H:%M')}\n"
+        text = f"🔔 Подія: {event.name}\n🕒 Дата: {format_uk_date(event.date)}\n"
         text += f"👥 Гравців: {len(players)} / {event.max_players}\n"
         if players:
             text += "Гравці: " + ", ".join(f"@{p.username}" if p.username else f"ID:{p.telegram_id}" for p in players) + "\n"
@@ -239,7 +248,7 @@ def generate_event_buttons():
     else:
         for event in events:
             weekday_abbr = UKR_DAY_ABBR[event.date.weekday()]
-            date_label = event.date.strftime("%d.%m")
+            date_label = format_date(event.date, format="dd.MM", locale="uk")
             label = f"{weekday_abbr}, {date_label} | {event.name}"
             markup.add(types.InlineKeyboardButton(label, callback_data=f"toggle_{event.id}"))
     return markup
@@ -445,8 +454,8 @@ def handle_photo(message):
 
         bot.reply_to(message, "✅ Фото успішно збережено для подальших анонсів.")
 
-locale.setlocale(locale.LC_TIME, 'uk_UA.UTF-8')
-locale.setlocale(locale.LC_TIME, 'uk_UA.UTF-8')
+#locale.setlocale(locale.LC_TIME, 'uk_UA.UTF-8')
+#locale.setlocale(locale.LC_TIME, 'uk_UA.UTF-8')
 
 
 @bot.message_handler(commands=['create_event'])
