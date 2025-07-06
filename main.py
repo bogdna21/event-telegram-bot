@@ -515,10 +515,7 @@ def publish_event_message(event, chat_id=GROUP_CHAT_ID):
             f"{event.description}"
         )
         markup = InlineKeyboardMarkup()
-        markup.add(
-            InlineKeyboardButton("✅ Я йду", callback_data=f"join_{event.id}"),
-            InlineKeyboardButton("❌ Не йду", callback_data=f"leave_{event.id}")
-        )
+
 
         msg = bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
 
