@@ -597,6 +597,20 @@ def send_events_to_group(message):
         bot.send_message(message.chat.id, "📭 Наразі немає запланованих подій.")
         return
 
+    # 🖼 Надсилаємо збережене фото (якщо існує)
+    if os.path.exists(CURRENT_IMAGE_PATH):
+        with open(CURRENT_IMAGE_PATH, "rb") as photo:
+            bot.send_photo(message.chat.id, photo)
+
+    # 📝 Фіксований вступний текст
+    intro_text = (
+        "Ану до нас на ігротеку! 🎲\n"
+        "Немає компанії? Знайдемо! Навчимо правилам — пригостимо кавою☕️\n\n"
+        "Початок о 18:00 (субота — 17:00)\n"
+        "📍 Адреса: вул. Листопадового Чину, 3\n\n"
+    )
+
+    # 🗓 Формуємо список івентів
     weekday_map = {0: "ПН", 1: "ВТ", 2: "СР", 3: "ЧТ", 4: "ПТ", 5: "СБ", 6: "НД"}
     text_blocks = []
 
@@ -616,12 +630,7 @@ def send_events_to_group(message):
         )
         text_blocks.append(block)
 
-    full_text = "\n\n".join(text_blocks)
-
-    # 🖼 Надсилаємо збережене фото (якщо існує)
-    if os.path.exists(CURRENT_IMAGE_PATH):
-        with open(CURRENT_IMAGE_PATH, "rb") as photo:
-            bot.send_photo(message.chat.id, photo)
+    full_text = intro_text + "\n\n".join(text_blocks)
 
     # 📩 Надсилаємо текст
     desc_msg = bot.send_message(message.chat.id, full_text)
