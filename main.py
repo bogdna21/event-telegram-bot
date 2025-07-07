@@ -259,6 +259,13 @@ def start_handler(message):
         user = User(telegram_id=telegram_id, username=username)
         db.session.add(user)
         db.session.commit()
+    welcome_text = (
+        "👋 Привіт!\n"
+        "🐙 *Чат-бот Octopus*\n"
+        "🔧 Створено: [@omeoba](https://t.me/omeoba)\n"
+        "📅 Тут ти можеш зареєструватися на подію"
+    )
+    bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown")
     bot.send_message(message.chat.id, "Привіт! Обери подію для реєстрації:", reply_markup=generate_event_buttons())
 
 
