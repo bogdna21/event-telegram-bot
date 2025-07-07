@@ -600,22 +600,24 @@ def send_events_to_group(message):
         bot.send_message(message.chat.id, "📭 Наразі немає запланованих подій.")
         return
 
-    # 🖼 Надсилаємо зображення (якщо збережене)
-    if os.path.exists(CURRENT_IMAGE_PATH):
-        try:
-            with open(CURRENT_IMAGE_PATH, "rb") as photo:
-                bot.send_photo(message.chat.id, photo)
-                time.sleep(1)  # затримка між запитами
-        except ApiTelegramException as e:
-            handle_too_many_requests(e)
-
-    # 📌 Вступ
     intro_text = (
         "Ану до нас на ігротеку! 🎲\n"
         "Немає компанії? Знайдемо! Навчимо правилам — пригостимо кавою☕️\n\n"
         "Початок о 18:00 (субота — 17:00)\n"
         "📍 Адреса: вул. Листопадового Чину, 3\n\n"
     )
+
+
+    # 🖼 Надсилаємо зображення (якщо збережене)
+    if os.path.exists(CURRENT_IMAGE_PATH):
+        try:
+            with open(CURRENT_IMAGE_PATH, "rb") as photo:
+                bot.send_photo(message.chat.id, photo, caption=intro_text)
+                time.sleep(1)  # затримка між запитами
+        except ApiTelegramException as e:
+            handle_too_many_requests(e)
+
+
 
     # 🧾 Формування тексту подій
     weekday_map = {0: "ПН", 1: "ВТ", 2: "СР", 3: "ЧТ", 4: "ПТ", 5: "СБ", 6: "НД"}
@@ -637,7 +639,7 @@ def send_events_to_group(message):
         )
         text_blocks.append(block)
 
-    full_text = intro_text + "\n\n".join(text_blocks)
+    full_text = "\n\n".join(text_blocks)
 
     # 📩 Надсилаємо опис подій
     try:
