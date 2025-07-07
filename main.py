@@ -14,6 +14,7 @@ from telebot.apihelper import ApiTelegramException
 from flask_migrate import Migrate
 import locale
 from babel.dates import format_datetime, format_date
+from telebot.apihelper import ApiTelegramException
 
 # === Завантаження змінних з .env.prod ===
 load_dotenv()
@@ -585,7 +586,8 @@ def edit_event_handler(message):
     event.name = new_name
     db.session.commit()
     bot.send_message(message.chat.id, f"✅ Подію перейменовано: '{old_name}' ➝ '{new_name}'")
-
+import time
+from telebot.apihelper import ApiTelegramException
 
 @bot.message_handler(commands=['events'])
 def send_events_to_group(message):
@@ -600,10 +602,14 @@ def send_events_to_group(message):
 
     # 🖼 Надсилаємо зображення (якщо збережене)
     if os.path.exists(CURRENT_IMAGE_PATH):
-        with open(CURRENT_IMAGE_PATH, "rb") as photo:
-            bot.send_photo(message.chat.id, photo)
+        try:
+            with open(CURRENT_IMAGE_PATH, "rb") as photo:
+                bot.send_photo(message.chat.id, photo)
+                time.sleep(1)  # затримка між запитами
+        except ApiTelegramException as e:
+            handle_too_many_requests(e)
 
-    # 📌 Фіксований вступний текст
+    # 📌 Вступ
     intro_text = (
         "Ану до нас на ігротеку! 🎲\n"
         "Немає компанії? Знайдемо! Навчимо правилам — пригостимо кавою☕️\n\n"
@@ -611,7 +617,7 @@ def send_events_to_group(message):
         "📍 Адреса: вул. Листопадового Чину, 3\n\n"
     )
 
-    # 🧾 Текст для подій
+    # 🧾 Формування тексту подій
     weekday_map = {0: "ПН", 1: "ВТ", 2: "СР", 3: "ЧТ", 4: "ПТ", 5: "СБ", 6: "НД"}
     text_blocks = []
 
@@ -634,9 +640,14 @@ def send_events_to_group(message):
     full_text = intro_text + "\n\n".join(text_blocks)
 
     # 📩 Надсилаємо опис подій
-    desc_msg = bot.send_message(message.chat.id, full_text)
+    try:
+        desc_msg = bot.send_message(message.chat.id, full_text)
+        time.sleep(1)
+    except ApiTelegramException as e:
+        handle_too_many_requests(e)
+        return
 
-    # 💾 Зберігаємо повідомлення огляду
+    # 💾 Зберігаємо
     overview = EventsOverviewMessage.query.first()
     if not overview:
         overview = EventsOverviewMessage(
@@ -651,11 +662,22 @@ def send_events_to_group(message):
         overview.last_rendered_text = full_text
     db.session.commit()
 
-    # 🧩 Кнопки вибору події
+    # 🧩 Кнопки
     markup = generate_event_buttons()
-    bot.send_message(message.chat.id, "Обери подію для реєстрації:", reply_markup=markup)
+    try:
+        bot.send_message(message.chat.id, "Обери подію для реєстрації:", reply_markup=markup)
+        time.sleep(1)
+    except ApiTelegramException as e:
+        handle_too_many_requests(e)
 
 
+def handle_too_many_requests(e):
+    if e.result.status_code == 429:
+        retry_after = e.result_json.get("parameters", {}).get("retry_after", 5)
+        print(f"[Rate Limit] Too Many Requests. Waiting for {retry_after} seconds...")
+        time.sleep(retry_after)
+    else:
+        raise e
 
 
 @bot.message_handler(commands=['list_event'])
