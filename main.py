@@ -106,9 +106,7 @@ def format_uk_date(dt, with_time=True):
 def is_admin(chat_id, user_id):
     return str(user_id) in ADMIN_IDS
 
-@bot.message_handler(commands=['start'])
-def start_handler(message):
-    print(f"Chat ID: {message.chat.id}")
+
 
 
 def periodic_event_update():
@@ -258,7 +256,6 @@ def start_handler(message):
         user = User(telegram_id=telegram_id, username=username)
         db.session.add(user)
         db.session.commit()
-
     bot.send_message(message.chat.id, "Привіт! Обери подію для реєстрації:", reply_markup=generate_event_buttons())
 
 
