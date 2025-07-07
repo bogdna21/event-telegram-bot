@@ -158,8 +158,7 @@ def update_overview_message():
 
                 block = (
                     f"<b>🗓 {weekday}, {date_str} – {event.name}</b>\n"
-                    f"👥 2–{event.max_players} гравців\n"
-                    f"⭐️ Для всіх бажаючих\n"
+                    f"{event.description.strip()}\n"
                     f"<b>Заповненість:</b> {len(usernames)} / {event.max_players}\n"
                     f"<b>Гравці:</b> " + (", ".join(usernames) if usernames else "—")
                 )
@@ -635,8 +634,7 @@ def send_events_to_group(message):
 
         block = (
             f"📅 {weekday}, {date_str} – {event.name}\n"
-            f"👥 {len(usernames)} / {event.max_players} гравців\n"
-            f"⭐ Для всіх бажаючих\n"
+            f"{event.description.strip()}\n"
             f"Гравці: {', '.join(usernames) if usernames else 'поки ніхто'}"
         )
         text_blocks.append(block)
