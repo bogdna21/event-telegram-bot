@@ -726,6 +726,11 @@ def webhook():
     bot.process_new_updates([update])
     return "ok", 200
 
+@app.route('/ping')
+def ping():
+    return "✅ I'm alive", 200
+
+
 @app.route('/')
 def index():
     return '✅ Бот працює!'
