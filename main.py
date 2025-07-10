@@ -140,7 +140,7 @@ def update_overview_message():
             return
 
 
-        events = Event.query.filter(Event.date >= datetime.now()).order_by(Event.date).all()
+        events = Event.query.order_by(Event.date).all()
         if not events:
             full_text = "📭 Немає запланованих подій."
         else:
@@ -235,7 +235,7 @@ def update_event_message(event):
 
 def generate_event_buttons():
     markup = types.InlineKeyboardMarkup()
-    events = Event.query.filter(Event.date >= datetime.now()).order_by(Event.date).all()
+    events = Event.query.order_by(Event.date).all()
     if not events:
         markup.add(types.InlineKeyboardButton("Подій ще немає", callback_data="none"))
     else:
@@ -473,9 +473,9 @@ def create_event_handler(message):
             bot.reply_to(message, "❗️ Невірний формат дати. Використовуйте DD.MM")
             return
 
-        if event_date < datetime.now():
-            bot.reply_to(message, "⚠️ Дата вже минула.")
-            return
+        #if event_date < datetime.now():
+         #   bot.reply_to(message, "⚠️ Дата вже минула.")
+          #  return
 
         try:
             max_players = int(max_players_str)
@@ -592,7 +592,7 @@ def send_events_to_group(message):
         bot.reply_to(message, "⛔ Лише для адмінів.")
         return
 
-    events = Event.query.filter(Event.date >= datetime.now()).order_by(Event.date).all()
+    events = Event.query.order_by(Event.date).all()
     if not events:
         bot.send_message(message.chat.id, "📭 Наразі немає запланованих подій.")
         return
