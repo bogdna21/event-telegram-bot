@@ -1,6 +1,8 @@
 import os
 import datetime
 import locale
+
+import telebot
 from flask import Flask, request
 from telebot import TeleBot, types
 from flask_sqlalchemy import SQLAlchemy
@@ -15,6 +17,7 @@ from flask_migrate import Migrate
 import locale
 from babel.dates import format_datetime, format_date
 from telebot.apihelper import ApiTelegramException
+
 
 # === Завантаження змінних з .env.prod ===
 load_dotenv()
@@ -63,6 +66,16 @@ UKR_DAY_ABBR = {
     5: "Сб",
     6: "Нд",
 }
+
+
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True
+}
+db = SQLAlchemy(app)
 
 # === Моделі ===
 class User(db.Model):
@@ -589,7 +602,7 @@ from telebot.apihelper import ApiTelegramException
 @bot.message_handler(commands=['events'])
 def send_events_to_group(message):
     if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "⛔ Лише для адмінів.")
+        bot.send_message(message.chat.id, "⛔ Лише для адмінів.")
         return
 
     events = Event.query.order_by(Event.date).all()
@@ -741,11 +754,15 @@ def export_event_handler(message):
 
 
 # === Вебхуки ===
-@app.route(f'/{API_TOKEN}', methods=['POST'])
+@app.route("/", methods=["POST"])
 def webhook():
-    update = types.Update.de_json(request.data.decode("utf-8"))
-    bot.process_new_updates([update])
-    return "ok", 200
+    if request.headers.get('content-type') == 'application/json':
+        json_str = request.get_data().decode('UTF-8')
+        update = telebot.types.Update.de_json(json_str)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return 'Unsupported Media Type', 415
 
 @app.route('/ping')
 def ping():
@@ -761,4 +778,5 @@ def index():
 if __name__ == "__main__":
     bot.remove_webhook()
     bot.set_webhook(url=f"{WEBHOOK_URL}/{API_TOKEN}")
-    app.run(host="0.0.0.0", port=PORT, threaded=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
