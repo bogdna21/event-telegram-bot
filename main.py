@@ -4,6 +4,8 @@ import locale
 
 import telebot
 from flask import Flask, request
+from sqlalchemy import Column
+from sqlalchemy.sql.sqltypes import Boolean
 from telebot import TeleBot, types
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
@@ -12,7 +14,7 @@ import pandas as pd
 from io import BytesIO
 import threading
 import time
-from telebot.apihelper import ApiTelegramException
+from telebot.apihelper import ApiTelegramException, session
 from flask_migrate import Migrate
 import locale
 from babel.dates import format_datetime, format_date
@@ -68,15 +70,6 @@ UKR_DAY_ABBR = {
 }
 
 
-
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_pre_ping': True
-}
-db = SQLAlchemy(app)
-
 # === Моделі ===
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -92,6 +85,7 @@ class Event(db.Model):
     chat_id = db.Column(db.BigInteger)
     description = db.Column(db.Text)
     last_rendered_text = db.Column(db.Text)
+    is_simple = Column(Boolean, default=False)
 
 class Registration(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -167,12 +161,14 @@ def update_overview_message():
                 weekday = weekday_map[event.date.weekday()]
                 date_str = event.date.strftime("%d.%m")
 
+
                 block = (
                     f"<b>🗓 {weekday}, {date_str} – {event.name}</b>\n"
                     f"{event.description.strip()}\n"
-                    f"<b>Заповненість:</b> {len(usernames)} / {event.max_players}\n"
-                    f"<b>Гравці:</b> " + (", ".join(usernames) if usernames else "—")
                 )
+                if getattr(event, "is_simple", False) is False:
+                    block += f"<b>Заповненість:</b> {len(usernames)} / {event.max_players}\n"
+                    block += f"<b>Гравці:</b> " + (", ".join(usernames) if usernames else "—")
                 text_blocks.append(block)
 
             full_text = "\n\n".join(text_blocks)
@@ -246,17 +242,28 @@ def update_event_message(event):
         print(f"❌ Помилка оновлення '{event.name}': {e}")
 
 
-def generate_event_buttons():
+def generate_event_buttons(events=None):
+    """
+    Повертає InlineKeyboardMarkup для переданого списку events.
+    Якщо events is None — дістане всі події з реєстрацією з БД.
+    (Сумісно з попередніми викликами без аргументів.)
+    """
+    if events is None:
+        # Беремо тільки події з реєстрацією
+        events = Event.query.filter_by(is_simple=False).order_by(Event.date).all()
+
     markup = types.InlineKeyboardMarkup()
-    events = Event.query.order_by(Event.date).all()
     if not events:
         markup.add(types.InlineKeyboardButton("Подій ще немає", callback_data="none"))
-    else:
-        for event in events:
-            weekday_abbr = UKR_DAY_ABBR[event.date.weekday()]
-            date_label = format_date(event.date, format="dd.MM", locale="uk")
-            label = f"{weekday_abbr}, {date_label} | {event.name}"
-            markup.add(types.InlineKeyboardButton(label, callback_data=f"toggle_{event.id}"))
+        return markup
+
+    for event in events:
+        # Безпечний weekday / date label
+        weekday_abbr = UKR_DAY_ABBR.get(event.date.weekday(), "")
+        date_label = format_date(event.date, format="dd.MM", locale="uk") if event.date else ""
+        label = f"{weekday_abbr}, {date_label} | {event.name}"
+        markup.add(types.InlineKeyboardButton(label, callback_data=f"toggle_{event.id}"))
+
     return markup
 
 # === Старт ===
@@ -371,6 +378,7 @@ def admin_menu(message):
 /set_event_image - При додаванні фото у примітках цю команду
 /add_admin - Дати адмінку
 /remove_admin - Видалити адмінку
+/add_event - створити подію без реєстрації(D&D)
 """)
 
 
@@ -500,7 +508,8 @@ def create_event_handler(message):
             name=name,
             date=event_date,
             max_players=max_players,
-            description=description
+            description=description,
+            is_simple=False
         )
         db.session.add(event)
         db.session.commit()
@@ -518,16 +527,67 @@ def create_event_handler(message):
         bot.reply_to(message, "🚫 Помилка при створенні події.")
 
 
+@bot.message_handler(commands=['add_event'])
+def add_simple_event(message):
+    if not is_admin(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ Лише для адмінів.")
+        return
+
+    try:
+        parts = message.text[len("/add_event"):].strip().split("|")
+        if len(parts) < 3:
+            bot.reply_to(message, "📌 Формат: /add_event Назва | Дата | Опис")
+            return
+
+        name = parts[0].strip()
+        date_str = parts[1].strip()
+        description = parts[2].strip()
+
+        try:
+            event_date = datetime.strptime(date_str, "%d.%m")
+            event_date = event_date.replace(year=datetime.now().year)
+        except ValueError:
+            bot.reply_to(message, "❗️ Невірний формат дати. Використовуйте DD.MM")
+            return
+
+        # Створюємо просту подію
+        new_event = Event(
+            name=name,
+            date=event_date,
+            description=description,
+            is_simple=True
+        )
+        db.session.add(new_event)
+        db.session.commit()
+
+        # Публікуємо в групу без кнопок
+        text = f"📅 {event_date.strftime('%d.%m.%Y')}\n<b>{name}</b>\n\n{description}"
+
+        bot.reply_to(message, "✅ Подія додана як проста (без реєстрації).")
+
+    except Exception as e:
+        bot.reply_to(message, f"🚫 Помилка: {e}")
+
+
 
 def publish_event_message(event, chat_id=GROUP_CHAT_ID):
     try:
-        text = (
-            f"🔔 Подія: {event.name}\n"
-            f"🕒 Дата: {event.date.strftime('%d.%m.%Y %H:%M')}\n"
-            f"👥 Гравців: 0 / {event.max_players}\n"
-            f"{event.description}"
-        )
-        markup = InlineKeyboardMarkup()
+        # Якщо подія проста — без блоку "Гравців" і кнопок
+        if getattr(event, "is_simple", False):
+            text = (
+                f"🔔 Подія: {event.name}\n"
+                f"🕒 Дата: {event.date.strftime('%d.%m.%Y %H:%M')}\n"
+                f"{event.description}"
+            )
+            markup = None
+        else:
+            text = (
+                f"🔔 Подія: {event.name}\n"
+                f"🕒 Дата: {event.date.strftime('%d.%m.%Y %H:%M')}\n"
+                f"👥 Гравців: 0 / {event.max_players}\n"
+                f"{event.description}"
+            )
+            markup = InlineKeyboardMarkup()
 
 
         msg = bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
@@ -601,6 +661,7 @@ from telebot.apihelper import ApiTelegramException
 
 @bot.message_handler(commands=['events'])
 def send_events_to_group(message):
+    # Тільки для адміністраторів
     if not is_admin(message.chat.id, message.from_user.id):
         bot.send_message(message.chat.id, "⛔ Лише для адмінів.")
         return
@@ -618,48 +679,55 @@ def send_events_to_group(message):
         "📍 Адреса: вул. Листопадового Чину, 3\n\n"
     )
 
-
-    # 🖼 Надсилаємо зображення (якщо збережене)
+    # Надсилаємо зображення (якщо є)
     if os.path.exists(CURRENT_IMAGE_PATH):
         try:
             with open(CURRENT_IMAGE_PATH, "rb") as photo:
                 bot.send_photo(message.chat.id, photo, caption=intro_text)
-                time.sleep(1)  # затримка між запитами
+                time.sleep(1)
         except ApiTelegramException as e:
             handle_too_many_requests(e)
 
-
-
-    # 🧾 Формування тексту подій
+    # Формування тексту подій
     weekday_map = {0: "ПН", 1: "ВТ", 2: "СР", 3: "ЧТ", 4: "ПТ", 5: "СБ", 6: "НД"}
     text_blocks = []
+    events_for_buttons = []  # тільки ті, що мають реєстрацію
 
     for event in events:
-        regs = Registration.query.filter_by(event_id=event.id).all()
-        users = [db.session.get(User, r.user_id) for r in regs]
-        usernames = [f"@{u.username}" if u.username else f"ID:{u.telegram_id}" for u in users if u]
+        weekday = weekday_map.get(event.date.weekday(), "")
+        date_str = format_date(event.date, format="dd.MM", locale="uk") if event.date else ""
 
-        weekday = weekday_map[event.date.weekday()]
-        date_str = event.date.strftime("%d.%m")
+        if getattr(event, "is_simple", False):
+            block = (
+                f"📅 {weekday}, {date_str} – {event.name}\n"
+                f"{(event.description or '').strip()}"
+            )
+        else:
+            regs = Registration.query.filter_by(event_id=event.id).all()
+            users = [db.session.get(User, r.user_id) for r in regs]
+            usernames = [f"@{u.username}" if u and u.username else f"ID:{u.telegram_id}" for u in users if u]
 
-        block = (
-            f"📅 {weekday}, {date_str} – {event.name}\n"
-            f"{event.description.strip()}\n"
-            f"Гравці: {', '.join(usernames) if usernames else 'поки ніхто'}"
-        )
+            players_text = ", ".join(usernames) if usernames else "поки ніхто"
+            block = (
+                f"📅 {weekday}, {date_str} – {event.name}\n"
+                f"{(event.description or '').strip()}\n"
+                f"Гравці: {players_text}"
+            )
+            events_for_buttons.append(event)
+
         text_blocks.append(block)
 
     full_text = "\n\n".join(text_blocks)
 
-    # 📩 Надсилаємо опис подій
+    # Надсилаємо опис подій
     try:
-        desc_msg = bot.send_message(message.chat.id, full_text)
+        desc_msg = bot.send_message(message.chat.id, full_text, parse_mode="HTML")
         time.sleep(1)
     except ApiTelegramException as e:
         handle_too_many_requests(e)
         return
 
-    # 💾 Зберігаємо
+    # Зберігаємо або оновлюємо overview у БД
     overview = EventsOverviewMessage.query.first()
     if not overview:
         overview = EventsOverviewMessage(
@@ -674,13 +742,15 @@ def send_events_to_group(message):
         overview.last_rendered_text = full_text
     db.session.commit()
 
-    # 🧩 Кнопки
-    markup = generate_event_buttons()
-    try:
-        bot.send_message(message.chat.id, "Обери подію для реєстрації:", reply_markup=markup)
-        time.sleep(1)
-    except ApiTelegramException as e:
-        handle_too_many_requests(e)
+    # Кнопки — тільки якщо є події з реєстрацією
+    if events_for_buttons:
+        markup = generate_event_buttons(events_for_buttons)
+        try:
+            bot.send_message(message.chat.id, "Обери подію для реєстрації:", reply_markup=markup)
+            time.sleep(1)
+        except ApiTelegramException as e:
+            handle_too_many_requests(e)
+
 
 
 def handle_too_many_requests(e):
@@ -754,15 +824,14 @@ def export_event_handler(message):
 
 
 # === Вебхуки ===
-@app.route("/", methods=["POST"])
+
+@app.route(f"/{API_TOKEN}", methods=['POST'])
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_str = request.get_data().decode('UTF-8')
-        update = telebot.types.Update.de_json(json_str)
-        bot.process_new_updates([update])
-        return '', 200
-    else:
-        return 'Unsupported Media Type', 415
+
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return '', 200
 
 @app.route('/ping')
 def ping():
@@ -779,4 +848,8 @@ if __name__ == "__main__":
     bot.remove_webhook()
     bot.set_webhook(url=f"{WEBHOOK_URL}/{API_TOKEN}")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+#if __name__ == "__main__":
+ #   print("[✅] Запуск у режимі polling")
+  #  bot.remove_webhook()
+   # bot.infinity_polling()
 
