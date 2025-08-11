@@ -822,12 +822,8 @@ def export_event_handler(message):
     df.to_excel(output, index=False)
     output.seek(0)
     bot.send_document(message.chat.id, output, visible_file_name=f"{event.name}.xlsx")
-
-
-# === Вебхуки ===
-
-@app.route('/', methods=['POST'])
-def webhook_root():
+@app.route(f'/{API_TOKEN}', methods=['POST'])
+def webhook():
     json_string = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
@@ -837,19 +833,12 @@ def webhook_root():
 def ping():
     return "✅ I'm alive", 200
 
-
 @app.route('/')
 def index():
     return '✅ Бот працює!'
 
-
 # === Запуск із вебхуком ===
 if __name__ == "__main__":
-    bot.remove_webhook()
+    print("[✅] Запуск у режимі webhook")
     bot.set_webhook(url=f"{WEBHOOK_URL}/{API_TOKEN}")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-#if __name__ == "__main__":
- #   print("[✅] Запуск у режимі polling")
-  #  bot.remove_webhook()
-   # bot.infinity_polling()
-
