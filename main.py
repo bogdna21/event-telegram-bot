@@ -55,6 +55,7 @@ db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
 
+
 # === Завантаження фото для ігротеки ===
 CURRENT_IMAGE_PATH = "current_event_image.jpg"
 
@@ -825,9 +826,8 @@ def export_event_handler(message):
 
 # === Вебхуки ===
 
-@app.route(f"/{API_TOKEN}", methods=['POST'])
+@app.route(f"/bot/{API_TOKEN}", methods=['POST'])
 def webhook():
-
     json_string = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
