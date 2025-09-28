@@ -99,6 +99,13 @@ class EventsOverviewMessage(db.Model):
     chat_id = db.Column(db.BigInteger)
     last_rendered_text = db.Column(db.Text)
 
+class EventLink(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.String(100), nullable=False)
+    url = db.Column(db.String(500), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 with app.app_context():
     db.create_all()
 
@@ -111,8 +118,11 @@ def format_uk_date(dt, with_time=True):
 
 
 # === Перевірка адміна ===
-def is_admin(chat_id, user_id):
-    return str(user_id) in ADMIN_IDS
+def is_admin(user_id, extra_param=None):
+    # `extra_param` додано, але не використовується.
+    return str(user_id) in [str(admin_id) for admin_id in ADMIN_IDS]
+
+
 
 
 
@@ -138,6 +148,59 @@ def periodic_event_update():
 
 # === Оновлення повідомлення про ігротеку(кількість людей) ===
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+
+@bot.message_handler(commands=['remove_event_link'])
+def remove_event_link_handler(message):
+    if not is_admin(message.from_user.id):
+        return
+
+    links = EventLink.query.all()
+    if not links:
+        bot.reply_to(message, "Немає збережених посилань!")
+        return
+
+    keyboard = types.InlineKeyboardMarkup()
+    for link in links:
+        callback_data = f"del_link_{link.id}"
+        keyboard.add(types.InlineKeyboardButton(
+            text=f"❌ {link.text}",
+            callback_data=callback_data
+        ))
+
+    bot.reply_to(
+        message,
+        "Виберіть посилання для видалення:",
+        reply_markup=keyboard
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('del_link_'))
+def callback_delete_link(call):
+    if not is_admin(call.from_user.id):
+        return
+
+    try:
+        link_id = int(call.data.split('_')[2])
+        link = db.session.get(EventLink, link_id)
+        if link:
+            db.session.delete(link)
+            db.session.commit()
+            bot.answer_callback_query(
+                call.id,
+                f"Посилання '{link.text}' видалено!"
+            )
+            bot.delete_message(
+                call.message.chat.id,
+                call.message.message_id
+            )
+            # Оновлюємо повідомлення з подіями
+            update_overview_message()
+    except Exception as e:
+        bot.answer_callback_query(
+            call.id,
+            f"Помилка при видаленні: {str(e)}"
+        )
 
 
 def update_overview_message():
@@ -173,6 +236,27 @@ def update_overview_message():
                 text_blocks.append(block)
 
             full_text = "\n\n".join(text_blocks)
+
+        links = EventLink.query.order_by(EventLink.created_at).all()
+        if links:
+            full_text += "\n\n🔗 *Корисні посилання:*\n"
+            for link in links:
+                full_text += f'<a href="{link.url}">{link.text}</a>\n'
+
+        overview = EventsOverviewMessage.query.first()
+        if overview:
+            try:
+                bot.edit_message_text(
+                    full_text,
+                    chat_id=overview.chat_id,
+                    message_id=overview.message_id,
+                    parse_mode='HTML',
+                    disable_web_page_preview=True
+                )
+                overview.last_rendered_text = full_text
+                db.session.commit()
+            except Exception as e:
+                print(f"Помилка при оновленні overview: {str(e)}")
 
         # 🧠 Якщо текст не змінився — не оновлюємо
         if overview.last_rendered_text == full_text:
@@ -379,6 +463,8 @@ def admin_menu(message):
 /set_event_image - При додаванні фото у примітках цю команду
 /add_admin - Дати адмінку
 /remove_admin - Видалити адмінку
+/add_event_link - Додати силку
+/remove_event_link - Видалити силку
 /add_event - створити подію без реєстрації(D&D)
 """)
 
@@ -639,26 +725,90 @@ def delete_all_events_handler(message):
 
 @bot.message_handler(commands=['edit_event'])
 def edit_event_handler(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ Лише для адмінів.")
-        return
+    try:
+        args = message.text.split(" ", 1)
+        if len(args) < 2:
+            bot.reply_to(message, "❌ Ви не вказали назву події або ID для редагування.\n"
+                                  "Скористайтесь: /edit_event <СтараНазва> [--name <НоваНазва>] [--date <НоваДата>] [--max <КількістьГравців>] [--desc <НовийОпис>]")
+            return
 
-    args = message.text.split(' ', 1)
-    if len(args) < 2 or "|" not in args[1]:
-        bot.reply_to(message, "📌 Формат: /edit_event СтараНазва | НоваНазва")
-        return
+        # Розбір аргументів
+        raw_cmd = args[1]
+        parts = raw_cmd.split("--")
+        old_name = parts[0].strip()  # Перше значення — поточна назва події або ID
+        updates = {}
 
-    old_name, new_name = map(str.strip, args[1].split("|", 1))
-    event = Event.query.filter_by(name=old_name).first()
-    if not event:
-        bot.reply_to(message, f"⚠️ Подія '{old_name}' не знайдена.")
-        return
+        for part in parts[1:]:
+            # Розпізнаємо опції
+            if "name" in part:
+                updates["name"] = part.replace("name", "").strip()
+            elif "date" in part:
+                try:
+                    updates["date"] = datetime.strptime(part.replace("date", "").strip(), "%d.%m.%Y")
+                except ValueError:
+                    bot.reply_to(message, "❌ Невірний формат дати. Використовуйте формат: DD.MM.YYYY")
+                    return
+            elif "max" in part:
+                try:
+                    updates["max_players"] = int(part.replace("max", "").strip())
+                except ValueError:
+                    bot.reply_to(message, "❌ Кількість гравців має бути числом.")
+                    return
+            elif "desc" in part:
+                updates["description"] = part.replace("desc", "").strip()
 
-    event.name = new_name
-    db.session.commit()
-    bot.send_message(message.chat.id, f"✅ Подію перейменовано: '{old_name}' ➝ '{new_name}'")
+        if not updates:
+            bot.reply_to(message, "❌ Ви не вказали, що саме потрібно змінити. Використовуйте опції --name, --date, --max, --desc.")
+            return
+
+        # Пошук події за назвою
+        event = Event.query.filter_by(name=old_name).first()
+        if not event:
+            bot.reply_to(message, f"❌ Подію з назвою `{old_name}` не знайдено.")
+            return
+
+        # Оновлення події
+        for key, value in updates.items():
+            setattr(event, key, value)
+
+        db.session.commit()
+
+        bot.reply_to(message, "✅ Подію успішно оновлено!")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Помилка редагування події: {str(e)}")
+
 import time
 from telebot.apihelper import ApiTelegramException
+
+
+@bot.message_handler(commands=['add_event_link'])
+def add_event_link_handler(message):
+    if not is_admin(message.from_user.id):
+        return
+
+    args = message.text.split('\n', 1)
+    if len(args) < 2:
+        bot.reply_to(message, "Використання: /add_event_link\nТекст|URL")
+        return
+
+    try:
+        text, url = args[1].split('|')
+        text = text.strip()
+        url = url.strip()
+
+        # Зберігаємо посилання в базі даних
+        link = EventLink(text=text, url=url)
+        db.session.add(link)
+        db.session.commit()
+
+        bot.reply_to(message, f"Посилання '{text}' успішно додано!")
+        # Оновлюємо повідомлення з подіями
+        update_overview_message()
+    except Exception as e:
+        bot.reply_to(message, f"Помилка при додаванні посилання: {str(e)}")
+
+
+
 
 @bot.message_handler(commands=['events'])
 def send_events_to_group(message):
