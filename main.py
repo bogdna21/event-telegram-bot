@@ -118,11 +118,8 @@ def format_uk_date(dt, with_time=True):
 
 
 # === Перевірка адміна ===
-def is_admin(chat_id, user_id):
-    is_chat_admin = str(chat_id) in [str(admin_id) for admin_id in ADMIN_IDS]
-    is_user_admin = str(user_id) in [str(admin_id) for admin_id in ADMIN_IDS]
-    return is_chat_admin or is_user_admin
-
+def is_admin(user_id: int) -> bool:
+    return str(user_id) in [str(admin_id).strip() for admin_id in ADMIN_IDS]
 
 
 
@@ -153,6 +150,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 @bot.message_handler(commands=['remove_event_link'])
 def remove_event_link_handler(message):
     if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
 
     links = EventLink.query.all()
@@ -449,7 +447,7 @@ def handle_toggle_registration(call):
 # === Команди адміністратора ===
 @bot.message_handler(commands=['admin'])
 def admin_menu(message):
-    if not is_admin(message.chat.id, message.from_user.id):
+    if not is_admin(message.from_user.id):
         bot.reply_to(message, "⛔ Доступ заборонено.")
         return
     bot.send_message(message.chat.id, """📋 Адмін-команди:
@@ -489,8 +487,8 @@ def update_admin_ids_env(new_ids):
 
 @bot.message_handler(commands=['add_admin'])
 def add_admin_handler(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "⛔ Доступ лише для адміністраторів.")
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
 
     telegram_id = str(message.reply_to_message.from_user.id if message.reply_to_message else message.from_user.id)
@@ -513,8 +511,8 @@ def add_admin_handler(message):
 
 @bot.message_handler(commands=['remove_admin'])
 def remove_admin_handler(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "⛔ Доступ лише для адміністраторів.")
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
 
     args = message.text.split()
@@ -541,8 +539,9 @@ def remove_admin_handler(message):
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        return  # ігнорувати фото від неадмінів
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
+        return
 
     if message.caption and message.caption.strip().startswith("/set_event_image"):
         # Зберігаємо останнє фото з максимальною роздільною здатністю
@@ -561,8 +560,8 @@ def handle_photo(message):
 
 @bot.message_handler(commands=['create_event'])
 def create_event_handler(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ Лише для адмінів.")
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
 
     try:
@@ -616,8 +615,8 @@ def create_event_handler(message):
 
 @bot.message_handler(commands=['add_event'])
 def add_simple_event(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ Лише для адмінів.")
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
 
     try:
@@ -692,8 +691,8 @@ def publish_event_message(event, chat_id=GROUP_CHAT_ID):
 
 @bot.message_handler(commands=['delete_event'])
 def delete_event_handler(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ Лише для адмінів.")
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
 
     args = message.text.split(' ', 1)
@@ -714,8 +713,8 @@ def delete_event_handler(message):
 
 @bot.message_handler(commands=['delete_all'])
 def delete_all_events_handler(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ Лише для адмінів.")
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
     Registration.query.delete()
     Event.query.delete()
@@ -784,6 +783,7 @@ from telebot.apihelper import ApiTelegramException
 @bot.message_handler(commands=['add_event_link'])
 def add_event_link_handler(message):
     if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
 
     args = message.text.split('\n', 1)
@@ -813,8 +813,8 @@ def add_event_link_handler(message):
 @bot.message_handler(commands=['events'])
 def send_events_to_group(message):
     # Тільки для адміністраторів
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.send_message(message.chat.id, "⛔ Лише для адмінів.")
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
 
     events = Event.query.order_by(Event.date).all()
@@ -915,8 +915,8 @@ def handle_too_many_requests(e):
 
 @bot.message_handler(commands=['list_event'])
 def list_event_handler(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ Лише для адмінів.")
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
     args = message.text.split(' ', 1)
     if len(args) < 2:
@@ -943,8 +943,8 @@ def list_event_handler(message):
 
 @bot.message_handler(commands=['export_event'])
 def export_event_handler(message):
-    if not is_admin(message.chat.id, message.from_user.id):
-        bot.reply_to(message, "❌ Лише для адмінів.")
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ Доступ заборонено.")
         return
     args = message.text.split(' ', 1)
     if len(args) < 2:
