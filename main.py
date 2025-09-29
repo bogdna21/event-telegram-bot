@@ -21,7 +21,7 @@ from babel.dates import format_datetime, format_date
 from telebot.apihelper import ApiTelegramException
 
 
-# === Завантаження змінних з .env.prod ===
+# === Завантаження змінних з .env.prod.prod ===
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
 
@@ -118,10 +118,10 @@ def format_uk_date(dt, with_time=True):
 
 
 # === Перевірка адміна ===
-def is_admin(user_id, extra_param=None):
-    # `extra_param` додано, але не використовується.
-    return str(user_id) in [str(admin_id) for admin_id in ADMIN_IDS]
-
+def is_admin(chat_id, user_id):
+    is_chat_admin = str(chat_id) in [str(admin_id) for admin_id in ADMIN_IDS]
+    is_user_admin = str(user_id) in [str(admin_id) for admin_id in ADMIN_IDS]
+    return is_chat_admin or is_user_admin
 
 
 
@@ -470,7 +470,7 @@ def admin_menu(message):
 
 
 def update_admin_ids_env(new_ids):
-    env_path = ".env.prod"
+    env_path = ".env.prod.prod"
     lines = []
     found = False
     new_line = f"ADMIN_IDS={','.join(new_ids)}"
@@ -729,7 +729,7 @@ def edit_event_handler(message):
         args = message.text.split(" ", 1)
         if len(args) < 2:
             bot.reply_to(message, "❌ Ви не вказали назву події або ID для редагування.\n"
-                                  "Скористайтесь: /edit_event <СтараНазва> [--name <НоваНазва>] [--date <НоваДата>] [--max <КількістьГравців>] [--desc <НовийОпис>]")
+                                  "Скористайтесь: /edit_event <СтараНазва> --name <НоваНазва> --date <НоваДата> --max <КількістьГравців> --desc <НовийОпис>")
             return
 
         # Розбір аргументів
